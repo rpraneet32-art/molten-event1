@@ -34,19 +34,15 @@ RESERVOIR_LIMIT = 1_500_000
 
 class ApproxEngine:
     def __init__(self, df: pd.DataFrame, accuracy_target: float = 0.95):
-        global _SHUFFLED_DF_CACHE
-        if _SHUFFLED_DF_CACHE is None:
-            # Pre-shuffle ONCE on startup. 
-            print("⏳ Pre-shuffling static dataframe for O(1) random sampling...")
-            if len(df) > RESERVOIR_LIMIT:
-                print(f"⚠️ Scale Governor: Capping memory reservoir to {RESERVOIR_LIMIT} from {len(df)}")
-                _SHUFFLED_DF_CACHE = df.sample(n=RESERVOIR_LIMIT, random_state=42)
-            else:
-                _SHUFFLED_DF_CACHE = df.sample(frac=1.0, random_state=42)
-            
-        self.df = _SHUFFLED_DF_CACHE
         # We track the actual size of the DB for scaling calculations
         self.total_rows = len(df) 
+        
+        # Shuffle ONCE per instance to create the reservoir
+        if len(df) > RESERVOIR_LIMIT:
+            self.df = df.sample(n=RESERVOIR_LIMIT, random_state=42)
+        else:
+            self.df = df.sample(frac=1.0, random_state=42)
+
         self.cached_rows = len(self.df)
         self.accuracy_target = max(0.80, min(0.99, accuracy_target))
         self.sample_fraction = _get_sample_fraction(self.accuracy_target)
@@ -56,14 +52,8 @@ class ApproxEngine:
 
     @classmethod
     def reset_cache(cls, df: pd.DataFrame):
-        """Force clear and rebuild the globally shuffled cache with new data."""
-        global _SHUFFLED_DF_CACHE
-        print("⏳ Rebuilding static dataframe cache for new dataset...")
-        if len(df) > RESERVOIR_LIMIT:
-            print(f"⚠️ Scale Governor: Capping memory reservoir to {RESERVOIR_LIMIT} from {len(df)}")
-            _SHUFFLED_DF_CACHE = df.sample(n=RESERVOIR_LIMIT, random_state=42)
-        else:
-            _SHUFFLED_DF_CACHE = df.sample(frac=1.0, random_state=42)
+        """No longer used in the multi-source architecture as each instance manages its own."""
+        pass
 
     def _get_base_sample(self) -> pd.DataFrame:
         """Get an O(1) random sample from the globally shuffled dataframe."""

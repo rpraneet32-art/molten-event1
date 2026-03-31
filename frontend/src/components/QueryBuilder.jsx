@@ -6,9 +6,10 @@ import { runCompareQuery, getDataInfo, uploadDataset, resetDataset } from "../ut
 /**
  * QueryBuilder
  * -------------
- * Overhauled to match the Figma FigmaDesign Mockup.
+ * Overhauled to match the FigmaDesign Mockup.
  * Features rounded pill segments, large action buttons, 
  * and the cyberpunk deep purple color palette.
+ * Now supports TOP K and PERCENTAGE categorical queries.
  */
 
 const QUERY_TYPES = [
@@ -17,6 +18,8 @@ const QUERY_TYPES = [
   { value: "sum", label: "SUM" },
   { value: "avg", label: "AVG" },
   { value: "group_by", label: "GROUP BY" },
+  { value: "top_k", label: "TOP K" },
+  { value: "percentage", label: "PERCENTAGE" },
 ];
 
 const AGG_FUNCS = ["AVG", "SUM", "COUNT"];
@@ -109,22 +112,30 @@ export default function QueryBuilder() {
     }
   };
 
-  const handleSubmit = async (e) => {
+const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
+      // Get a safe fallback column if it's currently stuck on "*"
+      const safeColumn = column === "*" && allCols.length > 0 ? allCols[0] : column;
+
       const params = {
-        query_type: queryType,
-        column: queryType === "count" ? "*" : column,
-        source_id_a: sourceA,
-        source_id_b: isJoinMode ? sourceB : null,
-        join_key: isJoinMode ? joinKey : null,
-        where: whereClause || null,
-        group_by_column: queryType === "group_by" ? groupByColumn : null,
-        agg_func: queryType === "group_by" ? aggFunc : "AVG",
-        accuracy_target: accuracy,
-      };
+          query_type: queryType,
+          // Your fix: Only use "*" for standard COUNT queries
+          column: queryType === "count" ? "*" : safeColumn,
+          
+          // Their new feature: Join parameters
+          source_id_a: sourceA,
+          source_id_b: isJoinMode ? sourceB : null,
+          join_key: isJoinMode ? joinKey : null,
+          
+          where: whereClause || null,
+          group_by_column: queryType === "group_by" ? groupByColumn : null,
+          agg_func: queryType === "group_by" ? aggFunc : "AVG",
+          accuracy_target: accuracy,
+        };
+      
       const data = await runCompareQuery(params);
       setResult(data);
     } catch (err) {
@@ -148,6 +159,8 @@ export default function QueryBuilder() {
       case "sum": sql += `SUM(${cSafe})`; break;
       case "avg": sql += `AVG(${cSafe})`; break;
       case "group_by": sql += `${gSafe}, ${aggFunc}(${cSafe})`; break;
+      case "top_k": sql += `${cSafe}, COUNT(*) as freq`; break;
+      case "percentage": sql += `${cSafe}, COUNT(*) * 100.0 / (SELECT COUNT(*)...)`; break;
     }
     
     sql += ` FROM "${tableA}"`;
@@ -157,6 +170,8 @@ export default function QueryBuilder() {
     
     if (whereClause) sql += ` WHERE ${whereClause}`;
     if (queryType === "group_by") sql += ` GROUP BY ${gSafe}`;
+    if (queryType === "top_k") sql += ` GROUP BY ${cSafe} ORDER BY freq DESC LIMIT 5`;
+    if (queryType === "percentage") sql += ` GROUP BY ${cSafe}`;
     return sql;
   };
 
@@ -187,7 +202,7 @@ export default function QueryBuilder() {
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="section-title-dino">QUERY ENGINE</h1>
+          <h1 className="section-title-neo">QUERY ENGINE</h1>
           <p className="text-white/60 tracking-wider text-sm mt-3 font-sans">
             Run exact vs approximate queries across multi-source datasets with SQL joins
           </p>
@@ -244,7 +259,7 @@ export default function QueryBuilder() {
             {/* Query Type selection - Pill Toggles */}
             <div className="space-y-4">
               <label className="neo-label ml-2">Query Type</label>
-              <div className="pill-segmented-container">
+              <div className="pill-segmented-container flex-wrap">
                 {QUERY_TYPES.map((qt) => (
                   <button
                     key={qt.value}
@@ -318,7 +333,8 @@ export default function QueryBuilder() {
                     onChange={(e) => setColumn(e.target.value)}
                     className="input-field-neo"
                   >
-                    {(queryType === "count_distinct" ? allCols : numericCols).map((col) => (
+                    {/* Switch to ALL cols for Top K and Percentage as well since they handle strings */}
+                    {(["count_distinct", "top_k", "percentage", "group_by"].includes(queryType) ? allCols : numericCols).map((col) => (
                       <option key={col} value={col}>{col}</option>
                     ))}
                   </select>
@@ -370,7 +386,7 @@ export default function QueryBuilder() {
             {/* SQL Preview */}
             <div className="bg-black/30 rounded-[30px] p-6 border border-white/5">
               <p className="neo-label mb-3">SQL PREVIEW</p>
-              <code className="text-sm font-mono text-neon-cyan drop-shadow-[0_0_8px_rgba(0,245,212,0.4)]">
+              <code className="text-sm font-mono text-neon-cyan drop-shadow-[0_0_8px_rgba(0,245,212,0.4)] block break-words">
                 {getSqlPreview()}
               </code>
             </div>

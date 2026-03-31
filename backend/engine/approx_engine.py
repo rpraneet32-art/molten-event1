@@ -226,7 +226,47 @@ class ApproxEngine:
             "accuracy_target": self.accuracy_target,
             "sample_size": self.sample_size,
         }
+    def top_k(self, column: str, k: int = 5, where: Optional[str] = None) -> Dict[str, Any]:
+        start = time.perf_counter()
+        sample = self._get_base_sample()
+        if where:
+            sample = self._apply_where(sample, where)
 
+        scale = self.total_rows / max(len(self.df), 1)
+        
+        # Calculate frequencies and inflate
+        counts = sample[column].value_counts().head(k)
+        result = {str(idx): int(val * scale) for idx, val in counts.items()}
+
+        elapsed = time.perf_counter() - start
+        return {
+            "query_type": "TOP_K",
+            "result": result,
+            "time_ms": round(max(elapsed * 1000, 0.02), 2),
+            "memory_bytes": self.sample_size * 104,
+            "engine": "approximate",
+            "technique": "Sample Frequency Scaling",
+        }
+
+    def percentage(self, column: str, where: Optional[str] = None) -> Dict[str, Any]:
+        start = time.perf_counter()
+        sample = self._get_base_sample()
+        if where:
+            sample = self._apply_where(sample, where)
+
+        # normalize=True automatically calculates the ratios (0.0 to 1.0)
+        pcts = sample[column].value_counts(normalize=True)
+        result = {str(idx): round(val * 100, 2) for idx, val in pcts.items()}
+
+        elapsed = time.perf_counter() - start
+        return {
+            "query_type": "PERCENTAGE",
+            "result": result,
+            "time_ms": round(max(elapsed * 1000, 0.02), 2),
+            "memory_bytes": self.sample_size * 104,
+            "engine": "approximate",
+            "technique": "Sample Distribution",
+        }
     def _apply_where(self, df: pd.DataFrame, where: str) -> pd.DataFrame:
         where = where.strip()
         for op in [">=", "<=", "!=", "==", "=", ">", "<"]:

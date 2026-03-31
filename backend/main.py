@@ -330,6 +330,10 @@ def _dispatch_query(req: QueryRequest, engine_type: str) -> dict:
                 table_b=source_b,
                 join_key=join_key
             )
+        elif query_type == "top_k":
+            return engine.top_k(req.column, k=5, where=req.where)
+        elif query_type == "percentage":
+            return engine.percentage(req.column, where=req.where)
     else:
         # Approximate Join logic: For smoothness, we join the samples if it's a join query
         if source_b and join_key:
@@ -358,5 +362,9 @@ def _dispatch_query(req: QueryRequest, engine_type: str) -> dict:
                 req.agg_func or "AVG",
                 req.where,
             )
+        elif query_type == "top_k":
+            return engine.top_k(req.column, k=5, where=req.where)
+        elif query_type == "percentage":
+            return engine.percentage(req.column, where=req.where)
 
     return {"error": f"Unknown query type: {query_type}"}
